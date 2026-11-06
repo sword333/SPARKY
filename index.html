@@ -240,7 +240,7 @@
 
     // 3. AI Brain Logic (Offline Demo + Live Gemini API Option)
     async function getAIResponse(userText) {
-      const API_KEY = "AIzaSyBC0gSMG0Aozl9hGqcXVWGLhL-fKGIlbcs"; // <-- Paste your Gemini API key here for full AI intelligence!
+      const API_KEY = "AQ.Ab8RN6KZXQh0MnWybEiRuvUGCq0Cv8Gh6_a-gS8adyx9JR0FMQ"; // <-- Paste your Gemini API key here for full AI intelligence!
 
       // Define the Agent's Characteristics & Persona
       const systemPersona = `
@@ -264,7 +264,7 @@
 
       // Live Gemini API Call
       try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${AIzaSyBC0gSMG0Aozl9hGqcXVWGLhL-fKGIlbcs}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${AQ.Ab8RN6KZXQh0MnWybEiRuvUGCq0Cv8Gh6_a-gS8adyx9JR0FMQ}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
