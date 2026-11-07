@@ -194,21 +194,82 @@
   </div>
 
   <script>
+    const robot = document.getElementById('robot');
+    const talkBtn = document.getElementById('talk-btn');
     const keyBtn = document.getElementById('key-btn');
+    const subtitle = document.getElementById('subtitle');
 
-    // Save API Key in Browser LocalStorage (Never uploaded to GitHub!)
+    // Your Google Apps Script Web App URL (used automatically if no local key is entered)
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyfoMxIDaV7OzWWy5iC58fXsxJbSmZWY90fAEDZwwusgSXypebmGF3kvgAP3Yb0-qm_6w/exec";
+
+    // 1. Setup Speech Recognition (Microphone Input)
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+
+    if (!SpeechRecognition) {
+      subtitle.innerText = "⚠️ Please open this page in Google Chrome or Microsoft Edge for voice support!";
+    } else {
+      recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+
+      recognition.onresult = async (event) => {
+        const childQuestion = event.results[0][0].transcript;
+        subtitle.innerText = `You asked: "${childQuestion}"`;
+
+        setRobotState('thinking', "Hmm, let me think about that...");
+
+        const reply = await getAIResponse(childQuestion);
+        speakResponse(reply);
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech Recognition Error:", event.error);
+        if (event.error === 'not-allowed') {
+          setRobotState('idle', "⚠️ Microphone blocked! Click the lock/tune icon in your browser address bar and allow the Microphone.");
+        } else {
+          setRobotState('idle', "Oops! I didn't catch that. Press the button and try speaking again!");
+        }
+      };
+    }
+
+    // 2. Setup Speech Synthesis (Speaker Output)
+    const synth = window.speechSynthesis;
+
+    // Button Click -> Start Listening
+    talkBtn.addEventListener('click', () => {
+      if (!recognition) {
+        alert("Please open this file in Google Chrome or Microsoft Edge so the microphone can work!");
+        return;
+      }
+      if (synth.speaking) synth.cancel();
+      try {
+        recognition.start();
+        setRobotState('listening', "I'm listening... ask your question!");
+      } catch (err) {
+        console.log("Mic already active:", err);
+      }
+    });
+
+    // Gear Button Click -> Save API Key in Browser LocalStorage
     keyBtn.addEventListener('click', () => {
       const currentKey = localStorage.getItem('SPARKY_GEMINI_KEY') || '';
       const newKey = prompt('Paste your Gemini API Key (saved only in this browser):', currentKey);
       if (newKey !== null) {
         localStorage.setItem('SPARKY_GEMINI_KEY', newKey.trim());
-        subtitle.innerText = newKey.trim() 
-          ? "✅ API Key saved in browser! Ask me anything!" 
-          : "⚠️ API Key cleared. Running in offline demo mode.";
+        subtitle.innerText = newKey.trim()
+          ? "✅ API Key saved in browser! Press the mic button and ask me anything!"
+          : "⚠️ Local Key cleared. Using Google Apps Script fallback.";
       }
     });
 
-  // 3. AI Brain Logic with Automatic Model Fallback
+    // Helper: Switch Robot CSS Expressions
+    function setRobotState(state, message) {
+      robot.className = 'robot-head ' + (state !== 'idle' ? state : '');
+      if (message) subtitle.innerText = message;
+    }
+
+    // 3. AI Brain Logic with Automatic Model Fallback
     async function getAIResponse(userText) {
       const API_KEY = localStorage.getItem('SPARKY_GEMINI_KEY') || "";
 
@@ -226,51 +287,89 @@
         contents: [{ parts: [{ text: userText }] }]
       };
 
-      if (!API_KEY) {
-        return "Beep boop! Please click the gear button at the bottom and paste your Gemini API key!";
-      }
-
-      // List of current Gemini 3 Flash models to try automatically
+      // Current active Gemini Flash models in order of priority
       const modelsToTry = [
         "gemini-3.5-flash-lite",
-        "gemini-3.8-flash",
+        "gemini-3.7-flash",
         "gemini-3.6-flash",
-        "gemini-3.2-flash"
+        "gemini-3.2-flash",
+        "gemini-3.1-flash-lite"
       ];
 
       let lastError = "";
 
-      for (const modelName of modelsToTry) {
-        try {
-          const response = await fetch(
-            `https://script.google.com/macros/s/AKfycbyfoMxIDaV7OzWWy5iC58fXsxJbSmZWY90fAEDZwwusgSXypebmGF3kvgAP3Yb0-qm_6w/exec`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
+      // MODE A: If you pasted a key in the ⚙️ Key button, call Gemini directly and auto-select a working model
+      if (API_KEY) {
+        for (const modelName of modelsToTry) {
+          try {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              }
+            );
+
+            const data = await response.json();
+
+            if (!data.error && data.candidates && data.candidates[0]) {
+              console.log(`✅ Connected using model: ${modelName}`);
+              return data.candidates[0].content.parts[0].text;
             }
-          );
 
+            if (data.error) {
+              console.warn(`Model ${modelName} skipped:`, data.error.message);
+              lastError = data.error.message;
+            }
+          } catch (err) {
+            console.error(`Network error on ${modelName}:`, err);
+            lastError = err.message;
+          }
+        }
+        return `Oops! My AI key reported an error: ${lastError}`;
+      }
+
+      // MODE B: If no key is in LocalStorage, use your Google Apps Script URL
+      if (APPS_SCRIPT_URL) {
+        try {
+          const response = await fetch(https://script.google.com/macros/s/AKfycbyfoMxIDaV7OzWWy5iC58fXsxJbSmZWY90fAEDZwwusgSXypebmGF3kvgAP3Yb0-qm_6w/exec, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Prevents CORS block on Google Apps Script
+            body: JSON.stringify(payload)
+          });
           const data = await response.json();
-
-          // If this model worked, return the answer immediately!
-          if (!data.error && data.candidates && data.candidates[0]) {
-            console.log(`✅ Connected using model: ${modelName}`);
-            return data.candidates[0].content.parts[0].text;
-          }
-
-          // Otherwise record the error and let the loop try the next model
           if (data.error) {
-            console.warn(`Model ${modelName} skipped:`, data.error.message);
-            lastError = data.error.message;
+            return `Oops! My Apps Script reported an error: ${data.error.message}`;
           }
+          return data.candidates[0].content.parts[0].text;
         } catch (err) {
-          console.error(`Network error on ${modelName}:`, err);
-          lastError = err.message;
+          return "Uh oh! My Google Apps Script link didn't respond. Try clicking the gear button and pasting your API key directly!";
         }
       }
 
-      return `Oops! My AI brain reported an error: ${lastError}`;
+      return "Beep boop! Please click the gear button at the bottom and paste your Gemini API key!";
+    }
+
+    // 4. Speak the Answer & Animate the Mouth
+    function speakResponse(text) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.pitch = 1.3;
+      utterance.rate = 1.0;
+
+      utterance.onstart = () => {
+        setRobotState('speaking', text);
+      };
+
+      utterance.onend = () => {
+        setRobotState('idle', text);
+      };
+
+      utterance.onerror = () => {
+        setRobotState('idle', text);
+      };
+
+      synth.speak(utterance);
     }
   </script>
 </body>
