@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- Allows online fallback TTS audio to play without browser referrer blocks -->
+  <meta name="referrer" content="no-referrer">
   <title>Sparky - Bilingual AI Robot Companion</title>
   <style>
     :root {
@@ -11,7 +13,6 @@
       --neon-blue: #38bdf8;
       --neon-green: #4ade80;
       --neon-yellow: #facc15;
-      --neon-pink: #f472b6;
     }
 
     * {
@@ -85,7 +86,7 @@
       transition: background 0.3s, box-shadow 0.3s, height 0.25s, transform 0.1s ease-out;
     }
 
-    /* Moving Pupil / Highlight */
+    /* Moving Pupil */
     .pupil {
       width: 26px;
       height: 26px;
@@ -125,8 +126,6 @@
     }
 
     /* --- EMOTION & ACTION STATES --- */
-
-    /* Listening State */
     .robot-head.listening {
       border-color: var(--neon-green);
       box-shadow: 0 0 50px rgba(74, 222, 128, 0.5);
@@ -144,7 +143,6 @@
       border-radius: 50%;
     }
 
-    /* Thinking State */
     .robot-head.thinking {
       border-color: var(--neon-yellow);
       box-shadow: 0 0 50px rgba(250, 204, 21, 0.4);
@@ -162,7 +160,6 @@
       border-radius: 20px;
     }
 
-    /* Speaking State */
     .robot-head.speaking .mouth {
       animation: talk 0.2s infinite alternate;
     }
@@ -177,12 +174,12 @@
       margin-top: 20px;
       text-align: center;
       width: 100%;
-      max-width: 600px;
+      max-width: 620px;
     }
 
     .btn-row {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       justify-content: center;
       align-items: center;
       flex-wrap: wrap;
@@ -192,13 +189,13 @@
       background: var(--neon-blue);
       color: #0f172a;
       border: none;
-      padding: 14px 28px;
-      font-size: 1.15rem;
+      padding: 14px 24px;
+      font-size: 1.1rem;
       font-weight: bold;
       border-radius: 50px;
       cursor: pointer;
       box-shadow: 0 5px 20px rgba(56, 189, 248, 0.4);
-      transition: transform 0.15s, background 0.2s;
+      transition: transform 0.15s;
     }
 
     #talk-btn:active { transform: scale(0.95); }
@@ -207,8 +204,8 @@
       background: #334155;
       color: white;
       border: 2px solid #475569;
-      padding: 12px 18px;
-      font-size: 0.95rem;
+      padding: 12px 16px;
+      font-size: 0.92rem;
       font-weight: bold;
       border-radius: 50px;
       cursor: pointer;
@@ -219,7 +216,6 @@
       color: var(--neon-green);
     }
 
-    /* Text Input Bar */
     .text-bar {
       margin-top: 14px;
       display: flex;
@@ -285,17 +281,17 @@
   <div class="controls">
     <div class="btn-row">
       <button id="talk-btn" type="button">🎤 تحدث / Speak</button>
-      <button id="lang-btn" class="secondary-btn active-lang" type="button">🌐 اللغة: العربية (AR)</button>
+      <button id="replay-btn" class="secondary-btn" type="button">🔊 إعاة الصوت / Replay</button>
+      <button id="lang-btn" class="secondary-btn active-lang" type="button">🌐 العربية (AR)</button>
       <button id="key-btn" class="secondary-btn" type="button" title="Set API Key">⚙️ Key</button>
     </div>
 
-    <!-- Text input works on all mobile & desktop browsers -->
     <div class="text-bar">
       <input id="text-input" type="text" placeholder="اكتب سؤالك هنا أو اضغط المايك..." dir="auto" />
       <button id="send-btn" type="button">إرسال / Ask</button>
     </div>
 
-    <p id="subtitle">مرحباً يا صديقي! اضغط زر المايك واسألني بالعربية أو الإنجليزية!</p>
+    <p id="subtitle">مرحباً يا صديقي! اضغط زر المايك أو اكتب سؤالك بالأسفل!</p>
     <div id="status-badge"></div>
   </div>
 
@@ -306,6 +302,7 @@
     const leftPupil = document.getElementById('left-pupil');
     const rightPupil = document.getElementById('right-pupil');
     const talkBtn = document.getElementById('talk-btn');
+    const replayBtn = document.getElementById('replay-btn');
     const langBtn = document.getElementById('lang-btn');
     const keyBtn = document.getElementById('key-btn');
     const textInput = document.getElementById('text-input');
@@ -313,15 +310,44 @@
     const subtitle = document.getElementById('subtitle');
     const statusBadge = document.getElementById('status-badge');
 
-    // Google Apps Script Fallback URL
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyfoMxIDaV7OzWWy5iC58fXsxJbSmZWY90fAEDZwwusgSXypebmGF3kvgAP3Yb0-qm_6w/exec";
 
-    // Default to Arabic ('ar-SA'), toggleable to English ('en-US')
     let currentLang = 'ar-SA';
     let lastInteractionTime = Date.now();
+    let lastSpokenText = "مرحباً يا صديقي! أنا سباركي الروبوت الذكي، صوتي يعمل بنجاح!";
+
+    // Keep global references so Chrome never garbage-collects active audio
+    window.currentUtterance = null;
+    window.currentAudioPlayer = null;
+    let audioCtx = null;
 
     // =====================================================
-    // 1. INTERACTIVE EYE MOVEMENT (Mouse, Touch & Idle Gaze)
+    // 0. ROBOT BEEP SOUND (Unlocks Mobile Audio Safely!)
+    // =====================================================
+    function playRobotBeep(freq = 520) {
+      try {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          audioCtx = new AudioContextClass();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.12);
+      } catch (e) {}
+    }
+
+    // =====================================================
+    // 1. INTERACTIVE EYE MOVEMENT (Mouse, Touch & Idle)
     // =====================================================
     function moveEyes(clientX, clientY) {
       lastInteractionTime = Date.now();
@@ -335,34 +361,20 @@
       const clampX = Math.max(-1, Math.min(1, deltaX));
       const clampY = Math.max(-1, Math.min(1, deltaY));
 
-      const eyeMoveX = clampX * 10;
-      const eyeMoveY = clampY * 8;
-      const pupilMoveX = clampX * 14;
-      const pupilMoveY = clampY * 14;
-
-      leftEye.style.transform = `translate(${eyeMoveX}px, ${eyeMoveY}px)`;
-      rightEye.style.transform = `translate(${eyeMoveX}px, ${eyeMoveY}px)`;
-      leftPupil.style.transform = `translate(calc(-50% + ${pupilMoveX}px), calc(-50% + ${pupilMoveY}px))`;
-      rightPupil.style.transform = `translate(calc(-50% + ${pupilMoveX}px), calc(-50% + ${pupilMoveY}px))`;
+      leftEye.style.transform = `translate(${clampX * 10}px, ${clampY * 8}px)`;
+      rightEye.style.transform = `translate(${clampX * 10}px, ${clampY * 8}px)`;
+      leftPupil.style.transform = `translate(calc(-50% + ${clampX * 14}px), calc(-50% + ${clampY * 14}px))`;
+      rightPupil.style.transform = `translate(calc(-50% + ${clampX * 14}px), calc(-50% + ${clampY * 14}px))`;
     }
 
-    // Track laptop mouse movement
     window.addEventListener('mousemove', (e) => moveEyes(e.clientX, e.clientY));
-
-    // Track mobile finger touch movement
     window.addEventListener('touchmove', (e) => {
-      if (e.touches && e.touches[0]) {
-        moveEyes(e.touches[0].clientX, e.touches[0].clientY);
-      }
+      if (e.touches && e.touches[0]) moveEyes(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
-
     window.addEventListener('touchstart', (e) => {
-      if (e.touches && e.touches[0]) {
-        moveEyes(e.touches[0].clientX, e.touches[0].clientY);
-      }
+      if (e.touches && e.touches[0]) moveEyes(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
 
-    // Natural autonomous eye movement when idle or thinking
     setInterval(() => {
       if (robot.classList.contains('thinking')) {
         const randX = (Math.random() - 0.5) * 24;
@@ -382,7 +394,7 @@
     }, 1400);
 
     // =====================================================
-    // 2. SPEECH SYNTHESIS (Arabic & English + Mobile Unlock)
+    // 2. DUAL VOICE ENGINE (System TTS + Online Cloud TTS)
     // =====================================================
     const synth = window.speechSynthesis;
     let availableVoices = [];
@@ -392,71 +404,123 @@
     }
     if (synth) {
       loadVoices();
-      if (synth.onvoiceschanged !== undefined) {
-        synth.onvoiceschanged = loadVoices;
-      }
+      if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
     }
 
-    // Critical for iOS & Android: Unlock audio engine synchronously inside user tap
-    function unlockMobileAudio() {
-      if (!synth) return;
-      try {
-        synth.cancel();
-        const silentUtterance = new SpeechSynthesisUtterance('');
-        silentUtterance.volume = 0;
-        synth.speak(silentUtterance);
-      } catch (e) {
-        console.warn("Audio unlock warning:", e);
-      }
-    }
-
-    // Detect if text contains Arabic characters
     function isArabicText(text) {
       return /[\u0600-\u06FF]/.test(text);
     }
 
-    // Clean markdown asterisks/emojis so the speaker doesn't read them aloud
     function cleanTextForSpeech(text) {
       return text.replace(/[*#_~`]/g, '').trim();
     }
 
-    function speakResponse(text) {
-      if (!synth) {
+    function stopAllSpeech() {
+      if (synth) synth.cancel();
+      if (window.currentAudioPlayer) {
+        window.currentAudioPlayer.pause();
+        window.currentAudioPlayer = null;
+      }
+    }
+
+    // Fallback: Streams online TTS audio if Windows/Phone lacks an installed voice pack
+    function playOnlineCloudTTS(text, langCode) {
+      const shortText = text.slice(0, 200);
+      const url = `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=${langCode}&q=${encodeURIComponent(shortText)}`;
+      const audio = new Audio(url);
+      window.currentAudioPlayer = audio;
+
+      audio.onplay = () => setRobotState('speaking', text);
+      audio.onended = () => setRobotState('idle', text);
+      audio.onerror = () => {
+        console.warn("Cloud TTS stream blocked or failed.");
         setRobotState('idle', text);
+      };
+
+      audio.play().catch(err => {
+        console.warn("Audio play prevented:", err);
+        setRobotState('idle', text);
+      });
+    }
+
+    function speakResponse(text) {
+      const spokenText = cleanTextForSpeech(text);
+      if (!spokenText) return;
+      lastSpokenText = spokenText;
+
+      stopAllSpeech();
+      setRobotState('speaking', text);
+
+      const isArabic = isArabicText(spokenText);
+      loadVoices();
+
+      // Find matching voice installed on the device
+      const arabicVoice = availableVoices.find(v => v.lang.toLowerCase().includes('ar'));
+      const englishVoice = availableVoices.find(v => v.lang.toLowerCase().includes('en'));
+
+      // If asking in Arabic on a Windows PC that has NO Arabic voice installed, use Cloud TTS
+      if (isArabic && !arabicVoice) {
+        console.log("No local Arabic voice installed in browser; using Online Arabic TTS.");
+        playOnlineCloudTTS(spokenText, 'ar');
         return;
       }
 
-      synth.cancel();
-      const spokenText = cleanTextForSpeech(text);
-      const utterance = new SpeechSynthesisUtterance(spokenText);
-      const isArabic = isArabicText(spokenText);
-
-      loadVoices();
-
-      if (isArabic) {
-        utterance.lang = 'ar-SA';
-        // Find best available Arabic voice on Windows, Android, or iOS
-        const arabicVoice = availableVoices.find(v => v.lang.toLowerCase().startsWith('ar'));
-        if (arabicVoice) utterance.voice = arabicVoice;
-        // Normal pitch for Arabic so pronunciation stays crystal clear
-        utterance.pitch = 1.0;
-        utterance.rate = 0.95;
-      } else {
-        utterance.lang = 'en-US';
-        const englishVoice = availableVoices.find(v => v.lang.toLowerCase().startsWith('en'));
-        if (englishVoice) utterance.voice = englishVoice;
-        utterance.pitch = 1.2;
-        utterance.rate = 1.0;
+      if (!synth) {
+        playOnlineCloudTTS(spokenText, isArabic ? 'ar' : 'en');
+        return;
       }
 
-      utterance.onstart = () => setRobotState('speaking', text);
-      utterance.onend = () => setRobotState('idle', text);
-      utterance.onerror = () => setRobotState('idle', text);
+      // Wait 60ms after synth.cancel() so Chrome does not accidentally cancel the new speech
+      setTimeout(() => {
+        try {
+          synth.resume(); // Unpause Chrome speech queue if stuck
 
-      // Keep speech alive on mobile browsers
-      setRobotState('speaking', text);
-      synth.speak(utterance);
+          const utterance = new SpeechSynthesisUtterance(spokenText);
+          window.currentUtterance = utterance; // Prevent Chrome garbage collection bug
+
+          if (isArabic) {
+            utterance.lang = arabicVoice ? arabicVoice.lang : 'ar-SA';
+            if (arabicVoice) utterance.voice = arabicVoice;
+            utterance.pitch = 1.0;
+            utterance.rate = 0.95;
+          } else {
+            utterance.lang = englishVoice ? englishVoice.lang : 'en-US';
+            if (englishVoice) utterance.voice = englishVoice;
+            utterance.pitch = 1.2;
+            utterance.rate = 1.0;
+          }
+
+          let started = false;
+          utterance.onstart = () => {
+            started = true;
+            setRobotState('speaking', text);
+          };
+          utterance.onend = () => setRobotState('idle', text);
+          utterance.onerror = (e) => {
+            console.warn("SpeechSynthesis error, switching to Cloud TTS:", e);
+            playOnlineCloudTTS(spokenText, isArabic ? 'ar' : 'en');
+          };
+
+          synth.speak(utterance);
+
+          // Safety watchdog: if browser speech fails to start within 1.2s, play Cloud TTS
+          setTimeout(() => {
+            if (!started && !synth.speaking) {
+              playOnlineCloudTTS(spokenText, isArabic ? 'ar' : 'en');
+            }
+          }, 1200);
+
+        } catch (err) {
+          playOnlineCloudTTS(spokenText, isArabic ? 'ar' : 'en');
+        }
+      }, 60);
     }
+
+    // Replay / Test Voice Button
+    replayBtn.addEventListener('click', () => {
+      playRobotBeep(660);
+      speakResponse(lastSpokenText);
+    });
 
     // =====================================================
     // 3. SPEECH RECOGNITION (Bilingual AR / EN Microphone)
@@ -490,19 +554,21 @@
 
     // Language Switcher Button
     langBtn.addEventListener('click', () => {
+      playRobotBeep(580);
       if (currentLang === 'ar-SA') {
         currentLang = 'en-US';
-        langBtn.innerText = '🌐 Lang: English (EN)';
-        subtitle.innerText = 'Switched to English! Press the mic button and ask me anything!';
+        langBtn.innerText = '🌐 English (EN)';
+        lastSpokenText = "Hello friend! My English voice is ready!";
+        speakResponse(lastSpokenText);
       } else {
         currentLang = 'ar-SA';
-        langBtn.innerText = '🌐 اللغة: العربية (AR)';
-        subtitle.innerText = 'تم التبديل إلى اللغة العربية! اضغط زر المايك واسألني أي سؤال!';
+        langBtn.innerText = '🌐 العربية (AR)';
+        lastSpokenText = "مرحباً يا صديقي! صوتي العربي جاهز للعمل!";
+        speakResponse(lastSpokenText);
       }
       if (recognition) recognition.lang = currentLang;
     });
 
-    // Shared Handler for Voice & Typed Questions
     async function handleQuestion(questionText) {
       if (!questionText || !questionText.trim()) return;
       const cleanQ = questionText.trim();
@@ -518,10 +584,11 @@
 
     // Microphone Button
     talkBtn.addEventListener('click', () => {
-      unlockMobileAudio(); // Unlocks speaker on iOS / Android
+      stopAllSpeech();
+      playRobotBeep(520); // Unlocks speaker without conflicting with SpeechRecognition
 
       if (!recognition) {
-        setRobotState('idle', "⚠️ متصفح الهاتف هذا لا يدعم المايكروفون المباشر، يرجى استخدام Chrome أو كتابة سؤالك في المربع أعلاه!");
+        setRobotState('idle', "⚠️ هذا المتصفح لا يدعم المايكروفون المباشر، يرجى استخدام Chrome أو Edge أو كتابة سؤالك في المربع أعلاه!");
         return;
       }
 
@@ -546,25 +613,24 @@
 
     // Send Text Button
     sendBtn.addEventListener('click', () => {
-      unlockMobileAudio(); // Unlocks speaker on iOS / Android
+      playRobotBeep(520);
       handleQuestion(textInput.value);
       textInput.value = '';
     });
 
     textInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
-        unlockMobileAudio();
+        playRobotBeep(520);
         handleQuestion(textInput.value);
         textInput.value = '';
       }
     });
 
-    // Update Status Badge so you know if the phone has the API Key
     function updateKeyStatus() {
       const hasKey = !!localStorage.getItem('SPARKY_GEMINI_KEY');
       statusBadge.innerText = hasKey
         ? "🟢 مفتاح الذكاء الاصطناعي محفوظ على هذا الجهاز (Direct API Key Active)"
-        : "🟡 لم يتم إدخال المفتاح على هذا الجهاز بعد — اضغط (⚙️ Key) لإضافته على الهاتف";
+        : "🟡 لم يتم إدخال المفتاح على هذا الجهاز بعد — اضغط (⚙️ Key) لإضافته";
     }
     updateKeyStatus();
 
@@ -596,7 +662,7 @@
         You are Sparky (سباركي), a cheerful, smart, and friendly classroom robot built for a school project.
         Rules:
         1. LANGUAGE RULE: If the user asks in Arabic, you MUST reply in clear, simple, friendly Arabic suitable for children (بدون رموز أو نجوم). If the user asks in English, reply in simple, friendly English.
-        2. Keep answers short (2 to 3 sentences maximum) because you are speaking out loud through a speaker.
+        2. Keep answers short (2 sentences maximum) so the voice synthesizer can read it smoothly.
         3. Do NOT use markdown symbols like * or # because your text goes directly to a voice synthesizer.
         4. Be enthusiastic, encouraging, and safe for children aged 7 to 12.
       `;
@@ -606,7 +672,6 @@
         contents: [{ parts: [{ text: userText }] }]
       };
 
-      // MODE A: Direct Gemini API Call using ⚙️ Key saved on the device
       if (API_KEY) {
         let modelsToTry = [
           "gemini-3.2-flash",
@@ -625,9 +690,7 @@
               .reverse();
             modelsToTry = [...new Set([...discovered, ...modelsToTry])];
           }
-        } catch (e) {
-          console.warn("Auto-discovery skipped, using default model list.");
-        }
+        } catch (e) {}
 
         let lastError = "";
         for (const modelName of modelsToTry) {
@@ -651,11 +714,10 @@
           }
         }
         return askedInArabic
-          ? `عذراً يا صديقي! حدث خطأ في مفتاح الذكاء الاصطناعي: ${lastError}`
+          ? `عذراً يا صديقي! حدث خطأ في المفتاح: ${lastError}`
           : `Oops! My AI key reported an error: ${lastError}`;
       }
 
-      // MODE B: Google Apps Script Fallback
       if (APPS_SCRIPT_URL) {
         try {
           const response = await fetch(APPS_SCRIPT_URL, {
@@ -667,14 +729,12 @@
           if (!data.error && data.candidates && data.candidates[0]) {
             return data.candidates[0].content.parts[0].text;
           }
-        } catch (err) {
-          console.warn("Apps script fallback error:", err);
-        }
+        } catch (err) {}
       }
 
       return askedInArabic
-        ? "بيب بوب! لكي أجيبك على الهاتف، يرجى الضغط على زر المفتاح (Key) في الأسفل ولصق مفتاح Gemini API الخاص بك مرة واحدة!"
-        : "Beep boop! To answer on this phone, please tap the ⚙️ Key button once and paste your Gemini API key!";
+        ? "بيب بوب! يرجى الضغط على زر المفتاح في الأسفل ولصق مفتاح الذكاء الاصطناعي الخاص بك!"
+        : "Beep boop! Please tap the Key button and paste your Gemini API key!";
     }
   </script>
 </body>
