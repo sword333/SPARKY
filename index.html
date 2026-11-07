@@ -208,8 +208,8 @@
       }
     });
 
+  // 3. AI Brain Logic with Automatic Model Fallback
     async function getAIResponse(userText) {
-      // Reads key from the laptop browser memory instead of hardcoded GitHub text
       const API_KEY = localStorage.getItem('SPARKY_GEMINI_KEY') || "";
 
       const systemPersona = `
@@ -221,31 +221,56 @@
         4. Never discuss inappropriate, scary, or adult topics.
       `;
 
+      const payload = {
+        system_instruction: { parts: [{ text: systemPersona }] },
+        contents: [{ parts: [{ text: userText }] }]
+      };
+
       if (!API_KEY) {
-        await new Promise(r => setTimeout(r, 800));
-        return "Beep boop! Please click the gear button at the bottom and paste your Gemini API key so my brain can connect!";
+        return "Beep boop! Please click the gear button at the bottom and paste your Gemini API key!";
       }
 
-      try {
-        const response = await fetch(`https://script.google.com/macros/s/AKfycbxq04iCG8I1BjmP6fyLIN6-snIAOHSrouEEByhqlIy2/dev`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemPersona }] },
-            contents: [{ parts: [{ text: userText }] }]
-          })
-        });
-        const data = await response.json();
+      // List of current Gemini 3 Flash models to try automatically
+      const modelsToTry = [
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-3.6-flash",
+        "gemini-3.2-flash"
+      ];
 
-        if (data.error) {
-          console.error("Gemini API Error:", data.error);
-          return `Oops! My AI key reported an error: ${data.error.message}`;
+      let lastError = "";
+
+      for (const modelName of modelsToTry) {
+        try {
+          const response = await fetch(
+            `https://script.google.com/macros/s/AKfycbyfoMxIDaV7OzWWy5iC58fXsxJbSmZWY90fAEDZwwusgSXypebmGF3kvgAP3Yb0-qm_6w/exec`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            }
+          );
+
+          const data = await response.json();
+
+          // If this model worked, return the answer immediately!
+          if (!data.error && data.candidates && data.candidates[0]) {
+            console.log(`✅ Connected using model: ${modelName}`);
+            return data.candidates[0].content.parts[0].text;
+          }
+
+          // Otherwise record the error and let the loop try the next model
+          if (data.error) {
+            console.warn(`Model ${modelName} skipped:`, data.error.message);
+            lastError = data.error.message;
+          }
+        } catch (err) {
+          console.error(`Network error on ${modelName}:`, err);
+          lastError = err.message;
         }
-
-        return data.candidates[0].content.parts[0].text;
-      } catch (error) {
-        return "Uh oh, my Wi-Fi antenna is ticklish right now! Can you ask me again?";
       }
+
+      return `Oops! My AI brain reported an error: ${lastError}`;
     }
   </script>
 </body>
