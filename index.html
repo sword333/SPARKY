@@ -333,7 +333,7 @@
       // MODE B: If no key is in LocalStorage, use your Google Apps Script URL
       if (APPS_SCRIPT_URL) {
         try {
-          const response = await fetch(https://script.google.com/macros/s/AKfycbyfoMxIDaV7OzWWy5iC58fXsxJbSmZWY90fAEDZwwusgSXypebmGF3kvgAP3Yb0-qm_6w/exec, {
+          const response = await fetch("https://script.google.com/macros/s/AKfycbyfoMxIDaV7OzWWy5iC58fXsxJbSmZWY90fAEDZwwusgSXypebmGF3kvgAP3Yb0-qm_6w/exec", {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Prevents CORS block on Google Apps Script
             body: JSON.stringify(payload)
